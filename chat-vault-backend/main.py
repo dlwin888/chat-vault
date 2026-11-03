@@ -19,7 +19,9 @@ load_dotenv()
 
 # ================= 数据库配置 =================
 # 连接本地 SSH 隧道转发过来的端口
-DATABASE_URL = "postgresql://admin:chatvault123@127.0.0.1:5433/chatvault"
+import os
+import os
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://admin:chatvault123@127.0.0.1:5433/chatvault")
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
