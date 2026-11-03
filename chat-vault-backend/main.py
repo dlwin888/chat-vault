@@ -48,7 +48,7 @@ app = FastAPI(title="ChatVault API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://ai.m3u8player.com.cn", "http://localhost:3000"]，
+    allow_origins=["https://ai.m3u8player.com.cn", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
