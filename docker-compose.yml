@@ -16,7 +16,7 @@ services:
     build: ./chat-vault-backend
     container_name: chatvault_backend
     environment:
-      - DATABASE_URL=postgresql://admin:chatvault123@db:5432/chatvault
+      - DATABASE_URL=postgresql+psycopg2://admin:chatvault123@db:5432/chatvault
       - ZHIPUAI_API_KEY=63951783e96d46d3b7dd8a6346226788.MLWO65aKrXaXW1Pg
     depends_on:
       - db
