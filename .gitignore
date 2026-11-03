@@ -1,0 +1,14 @@
+# 前端忽略
+node_modules/
+.next/
+.env*
+
+# 后端忽略
+.venv/
+__pycache__/
+*.pyc
+.env
+*.db
+
+# 系统忽略
+.DS_Store
