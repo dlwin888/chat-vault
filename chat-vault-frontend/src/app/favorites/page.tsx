@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import MarkdownRenderer from "@/components/MarkdownRenderer";
 
 const API_BASE = process.env.NODE_ENV === "production" ? "" : "http://127.0.0.1:8001";
 const PAGE_SIZE = 10;
@@ -182,14 +183,18 @@ export default function FavoritesPage() {
                       <div className="flex items-center gap-2 mb-2">
                         <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-md">你问</span>
                       </div>
-                      <p className="text-zinc-900 font-medium text-lg leading-snug">{item.question}</p>
+                      {/* 用户提问渲染，加入 break-words 防止长文本撑破容器 */}
+                      <p className="text-zinc-900 font-medium text-lg leading-snug break-words">
+                        {item.question}
+                      </p>
                     </div>
                     
                     <div className="pl-4 border-l-2 border-zinc-200">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="text-xs font-bold text-green-600 bg-green-50 px-2.5 py-1 rounded-md">AI 答</span>
                       </div>
-                      <p className="text-zinc-600 leading-relaxed whitespace-pre-wrap text-sm">{item.answer}</p>
+                      {/* AI 回答使用 Markdown 渲染 */}
+                      <MarkdownRenderer content={item.answer} />
                     </div>
                     
                     <div className="mt-5 pt-4 border-t border-zinc-100 flex justify-between items-center">
