@@ -113,6 +113,7 @@ export default function FavoritesPage() {
 
   return (
     <div className="flex h-screen bg-zinc-50">
+      {/* 左侧边栏 */}
       <div className="w-[260px] bg-white border-r border-zinc-200 flex flex-col hidden md:flex">
         <div className="p-4">
           <Link href="/" className="flex items-center gap-2 px-2 py-3 hover:bg-zinc-50 rounded-xl transition-colors mb-6">
@@ -131,6 +132,7 @@ export default function FavoritesPage() {
         </div>
       </div>
 
+      {/* 主内容区 */}
       <div className="flex-1 overflow-y-auto p-4 md:p-10">
         <div className="max-w-3xl mx-auto">
           <div className="mb-10">
@@ -138,6 +140,7 @@ export default function FavoritesPage() {
             <p className="text-zinc-500">你保存在 ChatVault 里的所有 AI 洞察。</p>
           </div>
 
+          {/* 搜索框 */}
           <div className="relative mb-8">
             <svg className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
             <input
@@ -177,11 +180,12 @@ export default function FavoritesPage() {
                     
                     <div className="mt-5 pt-4 border-t border-zinc-100 flex justify-between items-center">
                       <p className="text-xs text-zinc-400 font-mono">{item.created_at}</p>
+                      {/* 删除按钮（已修复为永久显示） */}
                       <button 
                         onClick={() => handleDelete(item.id)}
-                        className="text-xs text-red-400 hover:text-red-600 hover:bg-red-50 px-3 py-1.5 rounded transition-all opacity-0 group-hover:opacity-100"
+                        className="text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-md transition-all flex items-center gap-1"
                       >
-                        🗑️ 删除记录
+                        🗑️ 删除
                       </button>
                     </div>
                   </div>
@@ -189,7 +193,7 @@ export default function FavoritesPage() {
               </div>
 
               {/* 加载更多按钮 */}
-              <div className="mt-10 flex justify-center">
+              <div className="mt-10 flex justify-center pb-10">
                 {hasMore ? (
                   <button 
                     onClick={() => fetchFavorites(search, true)}
