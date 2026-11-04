@@ -1,7 +1,7 @@
 
 services:
   db:
-    image: postgres:16-alpine
+    image: docker.1ms.run/library/postgres:16-alpine
     container_name: chatvault_db
     environment:
       POSTGRES_USER: admin
@@ -12,7 +12,7 @@ services:
     restart: always
 
   backend:
-    image: docker.1ms.run/library/python:3.12-slimwq
+    image: docker.1ms.run/library/python:3.12-slim
     build: ./chat-vault-backend
     container_name: chatvault_backend
     environment:
