@@ -16,7 +16,7 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
   const handleCopy = (code: string) => {
     navigator.clipboard.writeText(code);
     setCopiedCode(code);
-    setTimeout(() => setCopiedCode(null), 2000); // 2秒后恢复
+    setTimeout(() => setCopiedCode(null), 2000);
   };
 
   return (
@@ -24,12 +24,10 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          // 自定义代码块渲染
           code({ node, inline, className, children, ...props }: any) {
             const match = /language-(\w+)/.exec(className || "");
             const codeString = String(children).replace(/\n$/, "");
 
-            // 行内代码 (例如 `const a = 1`)
             if (inline) {
               return (
                 <code className="bg-zinc-200 text-red-500 px-1.5 py-0.5 rounded text-[13px] font-mono" {...props}>
@@ -38,10 +36,8 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
               );
             }
 
-            // 多行代码块
             return match ? (
               <div className="relative my-4 rounded-lg overflow-hidden border border-zinc-700 bg-[#1e1e1e]">
-                {/* 顶部语言栏 & 复制按钮 */}
                 <div className="flex justify-between items-center px-4 py-2 bg-zinc-800 text-zinc-400 text-xs border-b border-zinc-700">
                   <span>{match[1].toUpperCase()}</span>
                   <button
