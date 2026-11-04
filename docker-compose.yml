@@ -15,8 +15,8 @@ services:
     image: docker.1ms.run/library/python:3.12-slimwq
     build: ./chat-vault-backend
     container_name: chatvault_backend
-    environment:
-      - DATABASE_URL=postgresql+psycopg2://admin:chatvault123@db:5432/chatvault
+  environment:
+      - DATABASE_URL=postgresql+psycopg2://admin:${DB_PASSWORD}@db:5432/chatvault
       - ZHIPUAI_API_KEY=${ZHIPUAI_API_KEY}
     depends_on:
       - db
