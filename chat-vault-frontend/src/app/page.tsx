@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import MarkdownRenderer from "@/components/MarkdownRenderer";
 
 const API_BASE = process.env.NODE_ENV === "production" ? "" : "http://127.0.0.1:8001";
 
@@ -157,7 +158,11 @@ export default function ChatPage() {
                   ? "bg-zinc-900 text-white rounded-br-sm" 
                   : "bg-zinc-100 text-zinc-800 rounded-bl-sm"
               }`}>
-                <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                {msg.role === "ai" ? (
+                    <MarkdownRenderer content={msg.content} />
+                  ) : (
+                    <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                  )}
                 
                 {msg.role === "ai" && msg.content && !loading && (
                   <button 
