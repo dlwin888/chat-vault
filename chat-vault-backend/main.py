@@ -168,24 +168,37 @@ def add_favorite(req: FavoriteRequest, current_user: User = Depends(get_current_
     db.commit()
     return {"status": "ok", "message": "收藏成功"}
 
+# 查询收藏夹（支持搜索、分页）
 @app.get("/api/favorites")
-def get_favorites(q: str = "", current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_favorites(
+    q: str = "", 
+    skip: int = 0, 
+    limit: int = 10, 
+    current_user: User = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
     query = db.query(Favorite).filter(Favorite.user_id == current_user.id)
     
-    # 全文检索：如果传了 q 参数，进行模糊匹配
     if q:
         search_pattern = f"%{q}%"
         query = query.filter((Favorite.question.ilike(search_pattern)) | (Favorite.answer.ilike(search_pattern)))
-        
-    items = query.order_by(Favorite.id.desc()).all()
-    return {"items": items}
+    
+    # 总数（用于前端判断是否还有下一页）
+    total = query.count()
+    
+    # 排序并分页
+    items = query.order_by(Favorite.id.desc()).offset(skip).limit(limit).all()
+    
+    return {"items": items, "total": total}
 
+# 删除单条收藏
 @app.delete("/api/favorites/{fav_id}")
 def delete_favorite(fav_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # 核心安全：只能删自己的
     fav = db.query(Favorite).filter(Favorite.id == fav_id, Favorite.user_id == current_user.id).first()
     if not fav:
         raise HTTPException(status_code=404, detail="找不到记录或无权删除")
     
     db.delete(fav)
     db.commit()
-    return {"status": "ok"}
+    return {"status": "ok", "message": "删除成功"}
