@@ -36,6 +36,13 @@ export default function ChatPage() {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // 👇 新增：统一的登出/Token失效处理函数
+  const handleAuthError = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("username");
+    router.push("/login");
+  };
+
   // 初始化：校验登录，拉取会话列表
   useEffect(() => {
     const savedToken = localStorage.getItem("token");
@@ -60,6 +67,13 @@ export default function ChatPage() {
       const res = await fetch(`${API_BASE}/api/conversations`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
+      
+      // 👇 如果报 401，说明 Token 已失效
+      if (res.status === 401) {
+        handleAuthError();
+        return;
+      }
+
       if (res.ok) {
         const data = await res.json();
         setConversations(data.items || []);
@@ -79,6 +93,12 @@ export default function ChatPage() {
       const res = await fetch(`${API_BASE}/api/conversations/${convId}/messages`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+
+      if (res.status === 401) {
+        handleAuthError();
+        return;
+      }
+
       if (res.ok) {
         const data = await res.json();
         setMessages(data.items || []);
@@ -97,10 +117,9 @@ export default function ChatPage() {
     setLatestAiMsgId(null);
   };
 
+  // 手动退出登录
   const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("username");
-    router.push("/login");
+    handleAuthError();
   };
 
   // 发送消息核心逻辑
@@ -128,6 +147,11 @@ export default function ChatPage() {
           conversation_id: currentConvId
         }),
       });
+
+      if (response.status === 401) {
+        handleAuthError();
+        return;
+      }
 
       if (!response.ok) throw new Error("请求失败");
 
@@ -170,7 +194,7 @@ export default function ChatPage() {
       console.error(error);
       setMessages((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1] = { role: "ai", content: "⚠️ 网络异常，请稍后重试。" };
+        updated[updated.length - 1] = { role: "ai", content: "⚠️ 网络异常或登录已过期，请稍后重试。" };
         return updated;
       });
     } finally {
@@ -184,7 +208,6 @@ export default function ChatPage() {
     const aiMessage = messages[msgIndex];
     const userMessage = messages[msgIndex - 1];
 
-    // 判断是否有 ID（如果是刚生成的，用 latestAiMsgId；如果是历史的，用 aiMessage.id）
     const messageId = aiMessage.id || latestAiMsgId;
     if (!messageId) {
       alert("⚠️ 这条消息还在生成中，或者系统未分配 ID，无法收藏。");
@@ -205,6 +228,11 @@ export default function ChatPage() {
         }),
       });
       
+      if (res.status === 401) {
+        handleAuthError();
+        return;
+      }
+
       if (res.ok) {
         alert("⭐ 收藏成功！");
       } else {
@@ -281,7 +309,6 @@ export default function ChatPage() {
                   <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                 )}
                 
-                {/* 收藏按钮：只有在 AI 消息生成完毕且不处于 loading 状态时才显示 */}
                 {msg.role === "ai" && msg.content && !loading && (
                   <button 
                     onClick={() => handleFavorite(idx)} 
