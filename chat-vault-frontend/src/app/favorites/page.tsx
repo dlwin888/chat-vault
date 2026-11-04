@@ -25,6 +25,20 @@ export default function FavoritesPage() {
   const [hasMore, setHasMore] = useState(true);
   const [skip, setSkip] = useState(0);
 
+  // 时间格式化函数
+  const formatTime = (timeStr: string) => {
+    if (!timeStr) return "";
+    const date = new Date(timeStr);
+    return date.toLocaleString("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  };
+
   // 拉取数据核心函数
   const fetchFavorites = async (keyword: string = "", isLoadMore: boolean = false) => {
     const token = localStorage.getItem("token");
@@ -179,8 +193,12 @@ export default function FavoritesPage() {
                     </div>
                     
                     <div className="mt-5 pt-4 border-t border-zinc-100 flex justify-between items-center">
-                      <p className="text-xs text-zinc-400 font-mono">{item.created_at}</p>
-                      {/* 删除按钮（已修复为永久显示） */}
+                      {/* 应用时间格式化函数 */}
+                      <p className="text-xs text-zinc-400 font-mono">
+                        {formatTime(item.created_at)}
+                      </p>
+                      
+                      {/* 永久显示的删除按钮 */}
                       <button 
                         onClick={() => handleDelete(item.id)}
                         className="text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-md transition-all flex items-center gap-1"
