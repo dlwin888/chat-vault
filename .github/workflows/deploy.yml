@@ -5,25 +5,33 @@ on:
     branches:
       - main
 
+# 👇 并发控制：如果有新的推送，自动取消正在排队或运行中的旧任务
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
+        # 👇 超时保护：防止 SSH 假死导致一直卡住
+        timeout: 10m 
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 10m
           script: |
             # 进入项目目录
             cd /www/wwwroot/chat-vault
             
-            # 拉取最新代码 (这里假设你在服务器已经配置了 Token 或 SSH)
+            # 拉取最新代码
             git pull origin main
             
-            # 重新构建并重启容器 (保留数据卷)
+            # 重新构建并后台启动容器 (保留数据卷)
             docker compose up -d --build
             
-            # 清理旧的无用镜像，释放磁盘空间（防止服务器撑爆）
+            # 清理旧的无用镜像，释放磁盘空间，防止服务器被撑爆
             docker image prune -f
