@@ -30,20 +30,19 @@ export default function ChatPage() {
   // 会话状态
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConvId, setCurrentConvId] = useState<number | null>(null);
-  
-  // 记录刚刚生成的 AI 消息 ID（用于流式输出后的收藏）
   const [latestAiMsgId, setLatestAiMsgId] = useState<number | null>(null);
+  
+  // 👇 新增：手机端侧边栏开关状态
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // 👇 新增：统一的登出/Token失效处理函数
   const handleAuthError = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("username");
     router.push("/login");
   };
 
-  // 初始化：校验登录，拉取会话列表
   useEffect(() => {
     const savedToken = localStorage.getItem("token");
     const savedName = localStorage.getItem("username");
@@ -56,24 +55,19 @@ export default function ChatPage() {
     }
   }, [router]);
 
-  // 自动滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  // 拉取左侧侧边栏会话列表
   const fetchConversations = async (authToken: string) => {
     try {
       const res = await fetch(`${API_BASE}/api/conversations`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
-      
-      // 👇 如果报 401，说明 Token 已失效
       if (res.status === 401) {
         handleAuthError();
         return;
       }
-
       if (res.ok) {
         const data = await res.json();
         setConversations(data.items || []);
@@ -83,46 +77,38 @@ export default function ChatPage() {
     }
   };
 
-  // 点击历史会话，加载聊天记录
   const loadConversation = async (convId: number) => {
     if (!token || loading) return;
     setCurrentConvId(convId);
+    setIsSidebarOpen(false); // 手机上选择会话后自动关闭侧边栏
     setLoading(true);
     
     try {
       const res = await fetch(`${API_BASE}/api/conversations/${convId}/messages`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-
       if (res.status === 401) {
         handleAuthError();
         return;
       }
-
       if (res.ok) {
         const data = await res.json();
         setMessages(data.items || []);
       }
     } catch (err) {
-      console.error("加载历史消息失败", err);
+      console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
-  // 新建对话
   const startNewChat = () => {
     setCurrentConvId(null);
     setMessages([]);
     setLatestAiMsgId(null);
+    setIsSidebarOpen(false);
   };
 
-  // 手动退出登录
-  const handleLogout = () => {
-    handleAuthError();
-  };
-
-  // 发送消息核心逻辑
   const sendMessage = async () => {
     if (!input.trim() || loading || !token) return;
 
@@ -130,7 +116,6 @@ export default function ChatPage() {
     setInput("");
     setLatestAiMsgId(null);
     
-    // 乐观更新 UI
     const newMessages = [...messages, { role: "user", content: userMsg }, { role: "ai", content: "" }];
     setMessages(newMessages);
     setLoading(true);
@@ -142,10 +127,7 @@ export default function ChatPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}` 
         },
-        body: JSON.stringify({ 
-          message: userMsg,
-          conversation_id: currentConvId
-        }),
+        body: JSON.stringify({ message: userMsg, conversation_id: currentConvId }),
       });
 
       if (response.status === 401) {
@@ -164,11 +146,9 @@ export default function ChatPage() {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          
           const text = decoder.decode(value, { stream: true });
           aiText += text;
 
-          // 实时更新界面：过滤掉后端的特殊标记
           const displayText = aiText.split("\n\n__MSG_ID__")[0];
           setMessages((prev) => {
             const updated = [...prev];
@@ -177,16 +157,14 @@ export default function ChatPage() {
           });
         }
 
-        // 流输出完毕，解析特殊标记，提取消息 ID 和会话 ID
         const idMatch = aiText.match(/__MSG_ID__:(\d+)__CONV_ID__:(\d+)/);
         if (idMatch) {
           const msgId = parseInt(idMatch[1]);
           newConvId = parseInt(idMatch[2]);
           setLatestAiMsgId(msgId);
-          
           if (!currentConvId) {
             setCurrentConvId(newConvId);
-            fetchConversations(token); // 如果是新对话，刷新侧边栏列表
+            fetchConversations(token);
           }
         }
       }
@@ -194,7 +172,7 @@ export default function ChatPage() {
       console.error(error);
       setMessages((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1] = { role: "ai", content: "⚠️ 网络异常或登录已过期，请稍后重试。" };
+        updated[updated.length - 1] = { role: "ai", content: "⚠️ 网络异常或登录已过期。" };
         return updated;
       });
     } finally {
@@ -202,42 +180,20 @@ export default function ChatPage() {
     }
   };
 
-  // 收藏消息
   const handleFavorite = async (msgIndex: number) => {
     if (!token) return;
     const aiMessage = messages[msgIndex];
     const userMessage = messages[msgIndex - 1];
-
     const messageId = aiMessage.id || latestAiMsgId;
-    if (!messageId) {
-      alert("⚠️ 这条消息还在生成中，或者系统未分配 ID，无法收藏。");
-      return;
-    }
+    if (!messageId) return;
 
     try {
       const res = await fetch(`${API_BASE}/api/favorites`, {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}` 
-        },
-        body: JSON.stringify({
-          message_id: messageId,
-          question: userMessage.content,
-          answer: aiMessage.content
-        }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ message_id: messageId, question: userMessage.content, answer: aiMessage.content }),
       });
-      
-      if (res.status === 401) {
-        handleAuthError();
-        return;
-      }
-
-      if (res.ok) {
-        alert("⭐ 收藏成功！");
-      } else {
-        alert("收藏失败");
-      }
+      if (res.ok) alert("⭐ 收藏成功！");
     } catch (err) {
       alert("网络错误");
     }
@@ -246,9 +202,19 @@ export default function ChatPage() {
   if (!token) return null;
 
   return (
-    <div className="flex h-screen bg-white">
+    <div className="flex h-screen bg-white relative overflow-hidden">
+      {/* 👇 移动端遮罩层（侧边栏打开时，后面的内容变暗并可点击关闭） */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 md:hidden transition-opacity" 
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {/* 👈 左侧会话侧边栏 */}
-      <div className="w-[260px] bg-zinc-50 border-r border-zinc-200 flex flex-col hidden md:flex">
+      <div className={`fixed md:static inset-y-0 left-0 z-50 w-[260px] bg-zinc-50 border-r border-zinc-200 flex flex-col transition-transform duration-300 ${
+        isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+      }`}>
         <div className="p-4">
           <button 
             onClick={startNewChat}
@@ -258,16 +224,13 @@ export default function ChatPage() {
           </button>
         </div>
 
-        {/* 会话列表 */}
         <div className="flex-1 overflow-y-auto px-3 space-y-1">
           {conversations.map((conv) => (
             <button
               key={conv.id}
               onClick={() => loadConversation(conv.id)}
               className={`w-full text-left px-3 py-3 rounded-lg text-sm truncate transition-colors ${
-                currentConvId === conv.id 
-                  ? "bg-zinc-200/60 font-medium text-zinc-900" 
-                  : "text-zinc-600 hover:bg-zinc-200/30"
+                currentConvId === conv.id ? "bg-zinc-200/60 font-medium text-zinc-900" : "text-zinc-600 hover:bg-zinc-200/30"
               }`}
             >
               💬 {conv.title || "未命名对话"}
@@ -279,41 +242,39 @@ export default function ChatPage() {
           <Link href="/favorites" className="flex items-center gap-2 px-3 py-2 text-zinc-600 hover:bg-zinc-200/50 rounded-lg text-sm transition-colors">
             <span>⭐</span> 我的收藏
           </Link>
-          <button onClick={handleLogout} className="w-full flex items-center gap-2 px-3 py-2 text-zinc-600 hover:bg-red-50 hover:text-red-600 rounded-lg text-sm transition-colors">
+          <button onClick={handleAuthError} className="w-full flex items-center gap-2 px-3 py-2 text-zinc-600 hover:bg-red-50 hover:text-red-600 rounded-lg text-sm transition-colors">
             <span>🚪</span> 退出登录 ({username})
           </button>
         </div>
       </div>
 
       {/* 👉 右侧主聊天区 */}
-      <div className="flex-1 flex flex-col h-full relative">
+      <div className="flex-1 flex flex-col h-full w-full relative">
+        {/* 👇 移动端专属顶部导航 */}
+        <div className="md:hidden flex items-center justify-between p-4 border-b border-zinc-100 bg-white">
+          <button onClick={() => setIsSidebarOpen(true)} className="p-2 -ml-2 text-zinc-600">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          </button>
+          <span className="font-bold text-zinc-800">ChatVault</span>
+          <div className="w-8"></div> {/* 占位保持居中 */}
+        </div>
+
         <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6">
           {messages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-zinc-400">
               <div className="w-16 h-16 bg-zinc-100 rounded-2xl flex items-center justify-center mb-4 text-3xl">✨</div>
               <p className="text-lg font-medium text-zinc-600">有什么我可以帮你的吗？</p>
-              <p className="text-sm mt-1">开始你的第一段对话吧。</p>
             </div>
           )}
           
           {messages.map((msg, idx) => (
             <div key={idx} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
               <div className={`max-w-[85%] md:max-w-[75%] p-4 rounded-2xl ${
-                msg.role === "user" 
-                  ? "bg-zinc-900 text-white rounded-br-sm" 
-                  : "bg-zinc-100 text-zinc-800 rounded-bl-sm"
+                msg.role === "user" ? "bg-zinc-900 text-white rounded-br-sm" : "bg-zinc-100 text-zinc-800 rounded-bl-sm"
               }`}>
-                {msg.role === "ai" ? (
-                  <MarkdownRenderer content={msg.content} />
-                ) : (
-                  <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
-                )}
-                
+                {msg.role === "ai" ? <MarkdownRenderer content={msg.content} /> : <p className="whitespace-pre-wrap">{msg.content}</p>}
                 {msg.role === "ai" && msg.content && !loading && (
-                  <button 
-                    onClick={() => handleFavorite(idx)} 
-                    className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-yellow-600 bg-white/50 hover:bg-white px-3 py-1.5 rounded-lg transition-all"
-                  >
+                  <button onClick={() => handleFavorite(idx)} className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-yellow-600 bg-white/50 hover:bg-white px-3 py-1.5 rounded-lg">
                     ⭐ 收藏此回答
                   </button>
                 )}
@@ -332,7 +293,6 @@ export default function ChatPage() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* 底部输入区 */}
         <div className="p-4 md:p-6 bg-white border-t border-zinc-100">
           <div className="max-w-4xl mx-auto relative flex items-center">
             <input
@@ -341,13 +301,9 @@ export default function ChatPage() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && sendMessage()}
               className="w-full bg-zinc-100 border-none rounded-2xl pl-6 pr-16 py-4 text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900 transition-all placeholder-zinc-500"
-              placeholder={currentConvId ? "继续当前对话..." : "给 AI 发送新消息..."}
+              placeholder={currentConvId ? "继续对话..." : "给 AI 发送新消息..."}
             />
-            <button 
-              onClick={sendMessage} 
-              disabled={loading || !input.trim()} 
-              className="absolute right-2 w-10 h-10 flex items-center justify-center bg-zinc-900 text-white rounded-xl hover:bg-zinc-800 disabled:opacity-30 transition-all"
-            >
+            <button onClick={sendMessage} disabled={loading || !input.trim()} className="absolute right-2 w-10 h-10 flex items-center justify-center bg-zinc-900 text-white rounded-xl disabled:opacity-30">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
             </button>
           </div>
