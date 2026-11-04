@@ -1,28 +1,29 @@
 # 🔒 ChatVault - AI 驱动的私人对话保险箱
 
-一个基于现代全栈技术栈构建的 AI 聊天与知识管理应用。用户可以与 AI 进行丝滑的流式对话，并将高质量的回答一键收藏。应用具备完整的多用户隔离机制与实时全文检索能力。
+一个基于现代全栈技术栈构建的 AI 聊天与知识管理应用。用户可以与 AI 进行丝滑的流式对话（支持多轮上下文记忆），并将高质量的回答一键收藏，构建专属的私人 AI 知识库。
 
 🔗 **在线体验**: [https://ai.m3u8player.com.cn](https://ai.m3u8player.com.cn)
 
 ## ✨ 核心功能
 
-- **🤖 丝滑的流式对话**：接入智谱 GLM-4 大模型，实现真正的“打字机”效果，拒绝等待焦虑。
-- **⭐ 一键收藏与标签**：随时保存 AI 的精彩回答，构建你的私人 AI 知识库。
-- **🔍 毫秒级全文检索**：基于后端数据库查询，输入关键词瞬间定位历史收藏。
-- **🔒 多用户数据隔离**：基于 JWT 与 Bcrypt 密码加密的完整用户认证系统，结合 PostgreSQL 行级数据隔离，保障数据绝对隐私。
-- **🐳 一键容器化部署**：前端、后端、数据库全部通过 Docker Compose 编排，彻底告别环境不一致。
+- **🧠 多轮对话记忆**：基于 PostgreSQL 持久化存储，AI 能记住你在此次会话中的上下文，不再是“金鱼记忆”。
+- **💬 会话侧边栏管理**：类似 ChatGPT 的左侧边栏，支持随时新建对话、查看历史会话，并在不同对话间丝滑切换。
+- **🎨 极致排版渲染**：集成 `react-markdown` 与 `react-syntax-highlighter`，完美渲染 AI 返回的代码块（带语法高亮与一键复制）、表格、列表等复杂格式。
+- **🤖 丝滑的流式对话**：接入智谱 GLM-4 大模型，通过定制 Nginx 配置与流式解析，实现真正的“打字机”效果。
+- **⭐ 一键收藏与搜索**：随时保存精彩回答，支持后端分页与防抖搜索，保障海量数据下的检索性能。
+- **🔒 多用户数据隔离**：基于 JWT 认证与行级数据隔离，确保用户只能看到自己的会话与收藏。
 
 ## 🛠️ 技术栈
 
-- **前端**: Next.js 16 (App Router) / React 19 / TypeScript / Tailwind CSS
-- **后端**: FastAPI (Python 3.12) / SQLAlchemy (ORM)
+- **前端**: Next.js 16 (App Router) / React 19 / TypeScript / Tailwind CSS / react-markdown
+- **后端**: FastAPI (Python 3.12) / SQLAlchemy ORM
 - **数据库**: PostgreSQL 16
 - **AI 驱动**: 智谱 AI SDK (glm-4-flash)
-- **部署**: Docker / Docker Compose / Nginx / Let's Encrypt (HTTPS)
+- **部署**: Docker Compose / Nginx / GitHub Actions / Let's Encrypt
 
 ## 🏗️ 系统架构与流式输出突破
 
-本项目最大的挑战在于：**Next.js 的 rewrites 代理在生产环境会缓冲流式响应**，导致用户无法看到打字机效果。
+本项目最大的挑战在于：Next.js 的 `rewrites` 代理在生产环境会缓冲流式响应，导致用户无法看到打字机效果。
 
 **解决方案**：将业务请求与页面请求彻底分流。
 
@@ -34,7 +35,7 @@
        ├── /api/*  ──(关闭 proxy_buffering 直连)──▶ Docker: FastAPI (127.0.0.1:8002)
        │                                                    │
        │                                                    ▼
-       │                                             PostgreSQL (数据隔离)
+       │                                             PostgreSQL (多轮对话/收藏数据)
        │
        └── /*      ──(页面渲染)──────────────────▶ Docker: Next.js (127.0.0.1:3001)
 
@@ -44,8 +45,7 @@
 
 ### 1. 环境准备
 请确保你的电脑安装了以下软件：
-- Node.js (v22+)
-- pnpm (npm install -g pnpm)
+- Node.js (v22+) & pnpm
 - Python (3.12+)
 - PostgreSQL (16+) 或使用 Docker 启动本地数据库
 
@@ -99,38 +99,30 @@
 - 安装 Nginx (用于反向代理与 SSL)
 
 ### 2. 配置文件准备
-在服务器 /www/wwwroot/chat-vault 目录下，创建 docker-compose.yml：
+在服务器 /www/wwwroot/chat-vault 目录下，创建 docker-compose.yml 与 .env 文件。
+
+docker-compose.yml 核心配置：
 
     services:
       db:
-        image: postgres:16-alpine
-        container_name: chatvault_db
+        image: docker.1ms.run/library/postgres:16-alpine
         environment:
           POSTGRES_USER: admin
-          POSTGRES_PASSWORD: 你的强密码
+          POSTGRES_PASSWORD: ${DB_PASSWORD}
           POSTGRES_DB: chatvault
         volumes:
           - pgdata:/var/lib/postgresql/data
-        restart: always
 
       backend:
         build: ./chat-vault-backend
-        container_name: chatvault_backend
         environment:
-          - DATABASE_URL=postgresql+psycopg2://admin:你的强密码@db:5432/chatvault
-          - ZHIPUAI_API_KEY=你的智谱API_KEY
-        depends_on:
-          - db
-        restart: always
+          - DATABASE_URL=postgresql+psycopg2://admin:${DB_PASSWORD}@db:5432/chatvault
+          - ZHIPUAI_API_KEY=${ZHIPUAI_API_KEY}
         ports:
           - "127.0.0.1:8002:8001"
 
       frontend:
         build: ./chat-vault-frontend
-        container_name: chatvault_frontend
-        depends_on:
-          - backend
-        restart: always
         ports:
           - "127.0.0.1:3001:3000"
 
@@ -139,28 +131,21 @@
 
 ### 3. 启动服务
 
-    # 构建并后台启动容器
     docker compose up -d --build
-
-    # 查看容器状态
     docker compose ps
 
-### 4. Nginx 反向代理配置 (关键)
-为了确保流式输出（打字机效果）不被缓冲，Nginx 配置必须拆分 api 路由并关闭缓冲：
+### 4. Nginx 反向代理配置 (流式输出关键)
+为了确保打字机效果，Nginx 配置必须拆分 api 路由并关闭缓冲：
 
     server {
         listen 443 ssl;
         server_name ai.m3u8player.com.cn;
-
-        # SSL 证书配置 ...
 
         # 1. 拦截 API 请求，直连 Python 后端并关闭缓冲
         location /api/ {
             proxy_pass http://127.0.0.1:8002; 
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-
             proxy_buffering off;
             proxy_cache off;
             gzip off;
@@ -171,17 +156,23 @@
         location / {
             proxy_pass http://127.0.0.1:3001;
             proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
         }
     }
 
 ---
 
-## 📝 踩坑与收获
+## ⚙️ CI/CD 自动化部署
 
-1. **Docker 镜像拉取超时**：通过配置阿里云专属镜像加速器，并在 Dockerfile 中显式指定 docker.1ms.run 代理源，解决了国内服务器拉取基础镜像失败的问题。
-2. **流式输出缓冲 Bug**：彻底理解了 Nginx 的 proxy_buffering 和 Next.js SSR 代理机制，最终采用 Nginx location /api/ 直接代理后端的方案，完美实现了 Typing Effect。
-3. **数据权限越权**：在 SQL 层面强制绑定 user_id 作为查询与删除条件，杜绝了水平越权漏洞。
+项目配置了 GitHub Actions，实现真正的“提交即部署”。每次 git push 至 main 分支，自动化工作流将：
+1. 通过 SSH 安全连接至阿里云服务器。
+2. 拉取最新代码并执行 docker compose up -d --build。
+3. 自动清理旧的无用镜像，释放服务器磁盘空间。
+
+## 📝 踩坑与收获 (Engineering Highlights)
+
+1. **流式输出缓冲 Bug**：彻底理解了 Nginx 的 proxy_buffering 和 Next.js SSR 代理机制，最终采用 Nginx location /api/ 直接代理后端的方案，完美实现了 Typing Effect。
+2. **Docker 存储驱动灾难恢复**：在一次清理磁盘时误删了底层 overlay2 目录，导致 Docker 挂掉。通过强制停止 Docker、清空损坏的 image 与 overlay 目录，并利用挂载的独立 Volumes 完整恢复了所有容器与数据库数据。
+3. **数据库迁移与权限控制**：在后端 SQL 层面强制绑定 user_id 与 conversation_id，杜绝了水平越权漏洞，保障了 SaaS 级应用的数据安全。
 
 ## 📄 License
 MIT
