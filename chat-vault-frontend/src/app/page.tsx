@@ -33,12 +33,9 @@ export default function ChatPage() {
   
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
-  // 弹窗状态
   const [modalType, setModalType] = useState<"rename" | "delete" | null>(null);
   const [activeConv, setActiveConv] = useState<Conversation | null>(null);
   const [renameInput, setRenameInput] = useState("");
-  
-  // 全局轻提示 Toast
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -54,50 +51,59 @@ export default function ChatPage() {
     router.push("/login");
   };
 
-  // 1. 首次挂载：恢复 Token 和用户名
+  // 👇 核心修复：组件加载立刻验证身份并拉取列表，不再依赖 token 状态
   useEffect(() => {
-    const savedToken = localStorage.getItem("token");
-    const savedName = localStorage.getItem("username");
-    if (!savedToken) {
-      router.push("/login");
-    } else {
+    const initApp = async () => {
+      const savedToken = localStorage.getItem("token");
+      const savedName = localStorage.getItem("username");
+      
+      if (!savedToken) {
+        router.push("/login");
+        return;
+      }
+      
       setToken(savedToken);
       setUsername(savedName || "User");
-    }
-  }, [router]);
 
-  // 2. 状态驱动：只要 Token 准备好，立刻拉取历史会话列表
-  useEffect(() => {
-    if (!token) return;
-    
-    let isMounted = true;
-    const fetchConversations = async () => {
+      // 立刻用 savedToken 拉取会话，不用等状态更新
       try {
         const res = await fetch(`${API_BASE}/api/conversations`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${savedToken}` },
         });
         if (res.status === 401) {
-          if (isMounted) handleAuthError();
+          handleAuthError();
           return;
         }
         if (res.ok) {
           const data = await res.json();
-          if (isMounted) setConversations(data.items || []);
+          setConversations(data.items || []);
         }
       } catch (err) {
         console.error("加载会话列表失败", err);
       }
     };
 
-    fetchConversations();
-    
-    return () => { isMounted = false; };
-  }, [token]);
+    initApp();
+  }, [router]);
 
-  // 自动滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
+
+  // 重新拉取列表的辅助函数（供新对话后使用）
+  const refreshConversations = async (authToken: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/conversations`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setConversations(data.items || []);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const loadConversation = async (convId: number) => {
     if (!token || loading) return;
@@ -227,14 +233,7 @@ export default function ChatPage() {
           setLatestAiMsgId(parseInt(idMatch[1]));
           if (!currentConvId) {
             setCurrentConvId(parseInt(idMatch[2]));
-            // 新对话生成后，重新请求一次列表同步侧边栏
-            const res = await fetch(`${API_BASE}/api/conversations`, {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            if (res.ok) {
-              const data = await res.json();
-              setConversations(data.items || []);
-            }
+            refreshConversations(token);
           }
         }
       }
