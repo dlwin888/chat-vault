@@ -24,7 +24,7 @@ export default function FavoritesPage() {
   const [hasMore, setHasMore] = useState(true);
   const [skip, setSkip] = useState(0);
 
-  // 👇 新增：弹窗和 Toast 状态
+  // 弹窗和 Toast 状态
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -89,7 +89,6 @@ export default function FavoritesPage() {
     return () => clearTimeout(delayDebounceFn);
   }, [search]);
 
-  // 提交删除
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     const token = localStorage.getItem("token");
@@ -185,8 +184,7 @@ export default function FavoritesPage() {
                       </div>
                       <div className="mt-5 pt-4 border-t border-zinc-100 flex justify-between items-center">
                         <p className="text-xs text-zinc-400 font-mono">{formatTime(item.created_at)}</p>
-                        {/* 👇 点击不再是 window.confirm，而是唤起自定义弹窗 */}
-                        <button onClick={() => setDeleteTarget(item.id)} className="text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-md">
+                        <button onClick={() => setDeleteTarget(item.id)} className="text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-md transition-colors">
                           🗑️ 删除
                         </button>
                       </div>
@@ -195,7 +193,7 @@ export default function FavoritesPage() {
                 </div>
                 <div className="mt-10 flex justify-center pb-10">
                   {hasMore ? (
-                    <button onClick={() => fetchFavorites(search, true)} disabled={loadingMore} className="px-8 py-3 bg-zinc-900 text-white rounded-xl font-medium disabled:opacity-50">
+                    <button onClick={() => fetchFavorites(search, true)} disabled={loadingMore} className="px-8 py-3 bg-zinc-900 text-white rounded-xl font-medium disabled:opacity-50 transition-colors">
                       {loadingMore ? "加载中..." : "加载更多"}
                     </button>
                   ) : (
@@ -208,7 +206,7 @@ export default function FavoritesPage() {
         </div>
       </div>
 
-      {/* 👇 删除收藏的确认弹窗 */}
+      {/* 删除收藏的确认弹窗 */}
       {deleteTarget !== null && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setDeleteTarget(null)} />
@@ -226,7 +224,7 @@ export default function FavoritesPage() {
         </div>
       )}
 
-      {/* 👇 全局轻提示 (Toast) */}
+      {/* 全局轻提示 (Toast) */}
       {toast && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[200] animate-in slide-in-from-top-4 fade-in duration-300">
           <div className={`flex items-center gap-2 px-6 py-3 rounded-full shadow-lg font-medium text-sm ${

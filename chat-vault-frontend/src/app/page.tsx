@@ -38,15 +38,14 @@ export default function ChatPage() {
   const [activeConv, setActiveConv] = useState<Conversation | null>(null);
   const [renameInput, setRenameInput] = useState("");
   
-  // 👇 新增：全局轻提示 Toast 状态
+  // 全局轻提示 Toast
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // 👇 触发 Toast 的函数
   const showToast = (type: "success" | "error", text: string) => {
     setToast({ type, text });
-    setTimeout(() => setToast(null), 2500); // 2.5秒后自动消失
+    setTimeout(() => setToast(null), 2500);
   };
 
   const handleAuthError = () => {
@@ -55,6 +54,7 @@ export default function ChatPage() {
     router.push("/login");
   };
 
+  // 1. 首次挂载：恢复 Token 和用户名
   useEffect(() => {
     const savedToken = localStorage.getItem("token");
     const savedName = localStorage.getItem("username");
@@ -63,34 +63,48 @@ export default function ChatPage() {
     } else {
       setToken(savedToken);
       setUsername(savedName || "User");
-      fetchConversations(savedToken);
     }
   }, [router]);
 
+  // 2. 状态驱动：只要 Token 准备好，立刻拉取历史会话列表
+  useEffect(() => {
+    if (!token) return;
+    
+    let isMounted = true;
+    const fetchConversations = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/conversations`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.status === 401) {
+          if (isMounted) handleAuthError();
+          return;
+        }
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted) setConversations(data.items || []);
+        }
+      } catch (err) {
+        console.error("加载会话列表失败", err);
+      }
+    };
+
+    fetchConversations();
+    
+    return () => { isMounted = false; };
+  }, [token]);
+
+  // 自动滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
-
-  const fetchConversations = async (authToken: string) => {
-    try {
-      const res = await fetch(`${API_BASE}/api/conversations`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (res.status === 401) return handleAuthError();
-      if (res.ok) {
-        const data = await res.json();
-        setConversations(data.items || []);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
 
   const loadConversation = async (convId: number) => {
     if (!token || loading) return;
     setCurrentConvId(convId);
     setIsSidebarOpen(false);
     setLoading(true);
+    
     try {
       const res = await fetch(`${API_BASE}/api/conversations/${convId}/messages`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -213,7 +227,14 @@ export default function ChatPage() {
           setLatestAiMsgId(parseInt(idMatch[1]));
           if (!currentConvId) {
             setCurrentConvId(parseInt(idMatch[2]));
-            fetchConversations(token);
+            // 新对话生成后，重新请求一次列表同步侧边栏
+            const res = await fetch(`${API_BASE}/api/conversations`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (res.ok) {
+              const data = await res.json();
+              setConversations(data.items || []);
+            }
           }
         }
       }
@@ -242,7 +263,6 @@ export default function ChatPage() {
         body: JSON.stringify({ message_id: messageId, question: userMessage.content, answer: aiMessage.content }),
       });
       
-      // 👇 使用自定义 Toast 替代原生 alert
       if (res.ok) {
         showToast("success", "⭐ 收藏成功");
       } else {
@@ -261,7 +281,7 @@ export default function ChatPage() {
         <div className="fixed inset-0 bg-black/50 z-40 md:hidden transition-opacity" onClick={() => setIsSidebarOpen(false)} />
       )}
 
-      {/* 👈 左侧会话侧边栏 */}
+      {/* 左侧会话侧边栏 */}
       <div className={`fixed md:static inset-y-0 left-0 z-50 w-[260px] bg-zinc-50 border-r border-zinc-200 flex flex-col transition-transform duration-300 ${
         isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       }`}>
@@ -299,7 +319,7 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* 👉 右侧主聊天区 */}
+      {/* 右侧主聊天区 */}
       <div className="flex-1 flex flex-col h-full w-full relative">
         <div className="md:hidden flex items-center justify-between p-4 border-b border-zinc-100 bg-white">
           <button onClick={() => setIsSidebarOpen(true)} className="p-2 -ml-2 text-zinc-600">
@@ -360,7 +380,7 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* 弹窗操作 */}
+      {/* 操作弹窗 */}
       {modalType && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setModalType(null)} />
@@ -394,7 +414,7 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* 👇 全局轻提示 (Toast) */}
+      {/* 全局轻提示 (Toast) */}
       {toast && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[200] animate-in slide-in-from-top-4 fade-in duration-300">
           <div className={`flex items-center gap-2 px-6 py-3 rounded-full shadow-lg font-medium text-sm ${
