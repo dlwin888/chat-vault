@@ -127,6 +127,7 @@ export default function ChatPage() {
 
   // 👇 核心通用函数：触发流式对话
   const triggerStreamChat = async (messageText: string) => {
+    if (!token) return; // 👈 修复 TypeScript 报错：确保 token 不是 null
     setLoading(true);
     try {
       const response = await fetch(`${API_BASE}/api/chat`, {
@@ -190,14 +191,12 @@ export default function ChatPage() {
     await triggerStreamChat(userMsg);
   };
 
-  // 👇 新增：重新生成逻辑
+  // 重新生成逻辑
   const handleRegenerate = async () => {
     if (!token || loading || messages.length < 2) return;
     
-    // 获取最后一条用户提问
     const lastUserMsg = messages[messages.length - 2].content;
     
-    // 1. 后端：删除废弃的 AI 消息
     if (currentConvId) {
       try {
         await fetch(`${API_BASE}/api/conversations/${currentConvId}/last_ai_message`, {
@@ -209,14 +208,12 @@ export default function ChatPage() {
       }
     }
 
-    // 2. 前端：把最后一条 AI 消息清空（保留占位）
     setMessages((prev) => {
       const updated = [...prev];
       updated[updated.length - 1] = { role: "ai", content: "" };
       return updated;
     });
 
-    // 3. 重新触发流式请求
     await triggerStreamChat(lastUserMsg);
   };
 
@@ -225,22 +222,11 @@ export default function ChatPage() {
     const aiMessage = messages[msgIndex];
     const userMessage = messages[msgIndex - 1];
     const messageId = aiMessage.id;
-    
-    // 注：由于后端每次流式返回特殊标记，这里为了防止 ID 丢失，我们最好也用特殊标记存。
-    // 但在当前场景，如果 ID 没有直接存在 msg 对象中，可以依靠后端防止重复收藏。
-    // 我们假设 aiMessage.id 在拉到历史时是有的，但如果是刚刚流式生成的，没赋给 id。
-    // 为了简化，我们可以让用户去“历史记录”里重新打开再收藏，或者让后端去匹配最近的一条。
-    // 这里我们依然保留收藏当前最后一条的逻辑（如果是流式刚生成的，后端可以在流式响应里带上 ID，由于之前优化过，这里如果没 ID 就提示一下）
-    if (!messageId) {
-       // 暂时妥协：如果刚生成的没有 ID，我们直接靠后端查找匹配
-       // (具体见后端的 add_favorite 逻辑，如果传 0，后端自己找最近一条)
-    }
 
     try {
       const res = await fetch(`${API_BASE}/api/favorites`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        // 这里为了简单，直接传 0，后端如果发现 message_id=0，去查最新一条
         body: JSON.stringify({ message_id: messageId || 0, question: userMessage.content, answer: aiMessage.content }),
       });
       
@@ -413,7 +399,6 @@ export default function ChatPage() {
                     <button onClick={() => handleFavorite(idx)} className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-yellow-600 bg-white/50 hover:bg-white px-3 py-1.5 rounded-lg transition-colors">
                       ⭐ 收藏
                     </button>
-                    {/* 👇 只有最后一条消息才显示重新生成 */}
                     {idx === messages.length - 1 && (
                       <button onClick={handleRegenerate} className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-blue-600 bg-white/50 hover:bg-white px-3 py-1.5 rounded-lg transition-colors">
                         🔄 重新生成
@@ -453,7 +438,7 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* 弹窗操作... 保持不变 */}
+      {/* 弹窗操作 */}
       {modalType && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setModalType(null)} />
