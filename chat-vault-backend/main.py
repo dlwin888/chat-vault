@@ -201,6 +201,35 @@ def delete_conversation(conv_id: int, current_user: User = Depends(get_current_u
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"删除失败: {str(e)}")
+
+# 清空当前用户的所有对话
+@app.delete("/api/conversations")
+def delete_all_conversations(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    try:
+        # 1. 找出当前用户的所有会话 ID
+        convs = db.query(Conversation).filter(Conversation.user_id == current_user.id).all()
+        conv_ids = [c.id for c in convs]
+        
+        if not conv_ids:
+            return {"message": "没有会话可清空"}
+
+        # 2. 找出这些会话下的所有消息 ID
+        messages = db.query(Message).filter(Message.conversation_id.in_(conv_ids)).all()
+        msg_ids = [m.id for m in messages]
+
+        # 3. 级联删除：先删收藏，再删消息，最后删会话
+        if msg_ids:
+            db.query(Favorite).filter(Favorite.message_id.in_(msg_ids)).delete(synchronize_session=False)
+        
+        db.query(Message).filter(Message.conversation_id.in_(conv_ids)).delete(synchronize_session=False)
+        
+        db.query(Conversation).filter(Conversation.user_id == current_user.id).delete(synchronize_session=False)
+
+        db.commit()
+        return {"message": "已清空所有对话"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"清空失败: {str(e)}")    
 # ---------------- AI 对话 ----------------
 
 @app.post("/api/chat")

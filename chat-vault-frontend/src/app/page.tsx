@@ -33,7 +33,8 @@ export default function ChatPage() {
   
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
-  const [modalType, setModalType] = useState<"rename" | "delete" | null>(null);
+  // 👇 增加 "clear_all" 弹窗状态
+  const [modalType, setModalType] = useState<"rename" | "delete" | "clear_all" | null>(null);
   const [activeConv, setActiveConv] = useState<Conversation | null>(null);
   const [renameInput, setRenameInput] = useState("");
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -51,7 +52,6 @@ export default function ChatPage() {
     router.push("/login");
   };
 
-  // 核心修复：进入页面立刻同步拉取列表
   useEffect(() => {
     const initApp = async () => {
       const savedToken = localStorage.getItem("token");
@@ -183,6 +183,27 @@ export default function ChatPage() {
     }
   };
 
+  // 👇 新增：清空全部对话逻辑
+  const handleClearAllSubmit = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/conversations`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setConversations([]);
+        setCurrentConvId(null);
+        setMessages([]);
+        setLatestAiMsgId(null);
+        showToast("success", "已清空全部对话");
+      }
+    } catch (err) {
+      showToast("error", "清空失败");
+    } finally {
+      setModalType(null);
+    }
+  };
+
   const startNewChat = () => {
     setCurrentConvId(null);
     setMessages([]);
@@ -205,12 +226,10 @@ export default function ChatPage() {
         body: JSON.stringify({ message: userMsg, conversation_id: currentConvId }),
       });
 
-      // 👇 关键修复：如果是 401 或者响应头不是 text/plain，说明是后端报错而不是流
       if (response.status === 401) return handleAuthError();
       
       const contentType = response.headers.get("content-type");
       if (!response.ok || (contentType && contentType.includes("application/json"))) {
-        // 如果返回的是 JSON 错误（比如 401 detail），不要当流读取
         const errData = await response.json();
         if (errData.detail === "Not authenticated" || errData.detail === "无效的认证凭证") {
            return handleAuthError();
@@ -292,10 +311,19 @@ export default function ChatPage() {
       <div className={`fixed md:static inset-y-0 left-0 z-50 w-[260px] bg-zinc-50 border-r border-zinc-200 flex flex-col transition-transform duration-300 ${
         isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       }`}>
-        <div className="p-4">
+        <div className="p-4 space-y-2">
           <button onClick={startNewChat} className="w-full flex items-center justify-center gap-2 py-3 bg-white border border-zinc-200 rounded-xl hover:bg-zinc-100 shadow-sm font-medium text-sm text-zinc-800">
             <span>➕</span> 新建对话
           </button>
+          {/* 👇 新增：清空全部按钮（只有当有对话时才显示） */}
+          {conversations.length > 0 && (
+            <button 
+              onClick={() => setModalType("clear_all")} 
+              className="w-full flex items-center justify-center gap-2 py-2 text-zinc-500 hover:text-red-600 hover:bg-red-50 rounded-xl text-xs font-medium transition-colors"
+            >
+              <span>🧹</span> 清空全部对话
+            </button>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto px-3 space-y-1">
@@ -392,6 +420,7 @@ export default function ChatPage() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setModalType(null)} />
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            
             {modalType === "rename" && (
               <div className="p-6">
                 <h3 className="text-lg font-bold text-zinc-900 mb-4">重命名会话</h3>
@@ -406,6 +435,7 @@ export default function ChatPage() {
                 </div>
               </div>
             )}
+
             {modalType === "delete" && (
               <div className="p-6">
                 <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4"><span className="text-2xl">⚠️</span></div>
@@ -417,6 +447,20 @@ export default function ChatPage() {
                 </div>
               </div>
             )}
+
+            {/* 👇 新增：清空全部确认弹窗 */}
+            {modalType === "clear_all" && (
+              <div className="p-6">
+                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4"><span className="text-2xl">🧨</span></div>
+                <h3 className="text-lg font-bold text-zinc-900 mb-2">清空全部对话？</h3>
+                <p className="text-sm text-zinc-500 mb-6 leading-relaxed">此操作将永久删除你所有的历史对话和消息记录，无法恢复。确定要继续吗？</p>
+                <div className="flex justify-end gap-3">
+                  <button onClick={() => setModalType(null)} className="px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors">取消</button>
+                  <button onClick={handleClearAllSubmit} className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-colors">确认清空</button>
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       )}
