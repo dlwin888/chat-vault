@@ -51,7 +51,7 @@ export default function ChatPage() {
     router.push("/login");
   };
 
-  // 👇 核心修复：组件加载立刻验证身份并拉取列表，不再依赖 token 状态
+  // 核心修复：进入页面立刻同步拉取列表
   useEffect(() => {
     const initApp = async () => {
       const savedToken = localStorage.getItem("token");
@@ -65,7 +65,6 @@ export default function ChatPage() {
       setToken(savedToken);
       setUsername(savedName || "User");
 
-      // 立刻用 savedToken 拉取会话，不用等状态更新
       try {
         const res = await fetch(`${API_BASE}/api/conversations`, {
           headers: { Authorization: `Bearer ${savedToken}` },
@@ -90,7 +89,6 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  // 重新拉取列表的辅助函数（供新对话后使用）
   const refreshConversations = async (authToken: string) => {
     try {
       const res = await fetch(`${API_BASE}/api/conversations`, {
@@ -207,8 +205,18 @@ export default function ChatPage() {
         body: JSON.stringify({ message: userMsg, conversation_id: currentConvId }),
       });
 
+      // 👇 关键修复：如果是 401 或者响应头不是 text/plain，说明是后端报错而不是流
       if (response.status === 401) return handleAuthError();
-      if (!response.ok) throw new Error("请求失败");
+      
+      const contentType = response.headers.get("content-type");
+      if (!response.ok || (contentType && contentType.includes("application/json"))) {
+        // 如果返回的是 JSON 错误（比如 401 detail），不要当流读取
+        const errData = await response.json();
+        if (errData.detail === "Not authenticated" || errData.detail === "无效的认证凭证") {
+           return handleAuthError();
+        }
+        throw new Error(errData.detail || "请求失败");
+      }
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
