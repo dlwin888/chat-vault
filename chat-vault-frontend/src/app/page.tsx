@@ -33,6 +33,11 @@ export default function ChatPage() {
   
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
+  // 👇 新增：自定义弹窗状态
+  const [modalType, setModalType] = useState<"rename" | "delete" | null>(null);
+  const [activeConv, setActiveConv] = useState<Conversation | null>(null);
+  const [renameInput, setRenameInput] = useState("");
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const handleAuthError = () => {
@@ -100,51 +105,66 @@ export default function ChatPage() {
     }
   };
 
-  // 👇 新增：重命名会话
-  const handleRename = async (e: React.MouseEvent, convId: number, oldTitle: string) => {
-    e.stopPropagation(); // 阻止触发外层会话点击事件
-    const newTitle = window.prompt("请输入新的会话名称", oldTitle);
-    if (!newTitle || newTitle.trim() === oldTitle) return;
+  // 打开重命名弹窗
+  const openRenameModal = (e: React.MouseEvent, conv: Conversation) => {
+    e.stopPropagation();
+    setActiveConv(conv);
+    setRenameInput(conv.title || "");
+    setModalType("rename");
+  };
+
+  // 打开删除确认弹窗
+  const openDeleteModal = (e: React.MouseEvent, conv: Conversation) => {
+    e.stopPropagation();
+    setActiveConv(conv);
+    setModalType("delete");
+  };
+
+  // 提交重命名
+  const handleRenameSubmit = async () => {
+    if (!activeConv || !renameInput.trim() || renameInput.trim() === activeConv.title) {
+      setModalType(null);
+      return;
+    }
 
     try {
-      const res = await fetch(`${API_BASE}/api/conversations/${convId}`, {
+      const res = await fetch(`${API_BASE}/api/conversations/${activeConv.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ title: newTitle }),
+        body: JSON.stringify({ title: renameInput }),
       });
       if (res.ok) {
         setConversations((prev) =>
-          prev.map((c) => (c.id === convId ? { ...c, title: newTitle } : c))
+          prev.map((c) => (c.id === activeConv.id ? { ...c, title: renameInput } : c))
         );
       }
     } catch (err) {
       alert("重命名失败");
+    } finally {
+      setModalType(null);
     }
   };
 
-  // 👇 新增：删除会话
-  const handleDeleteConv = async (e: React.MouseEvent, convId: number) => {
-    e.stopPropagation();
-    if (!window.confirm("确定要删除这个会话及所有聊天记录吗？此操作不可恢复。")) return;
+  // 提交删除
+  const handleDeleteSubmit = async () => {
+    if (!activeConv) return;
 
     try {
-      const res = await fetch(`${API_BASE}/api/conversations/${convId}`, {
+      const res = await fetch(`${API_BASE}/api/conversations/${activeConv.id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
-        // 如果删除的是当前正在看的会话，清空聊天区
-        if (currentConvId === convId) {
+        if (currentConvId === activeConv.id) {
           setCurrentConvId(null);
           setMessages([]);
         }
-        // 从侧边栏列表中移除
-        setConversations((prev) => prev.filter((c) => c.id !== convId));
-      } else {
-        alert("删除失败");
+        setConversations((prev) => prev.filter((c) => c.id !== activeConv.id));
       }
     } catch (err) {
-      alert("网络错误");
+      alert("删除失败");
+    } finally {
+      setModalType(null);
     }
   };
 
@@ -261,7 +281,6 @@ export default function ChatPage() {
 
         <div className="flex-1 overflow-y-auto px-3 space-y-1">
           {conversations.map((conv) => (
-            // 👇 修改了这里，加上了 group 和菜单按钮
             <div
               key={conv.id}
               onClick={() => loadConversation(conv.id)}
@@ -271,17 +290,16 @@ export default function ChatPage() {
             >
               <span className="truncate flex-1 mr-2">💬 {conv.title || "未命名对话"}</span>
               
-              {/* 悬浮菜单按钮 */}
               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button 
-                  onClick={(e) => handleRename(e, conv.id, conv.title)}
+                  onClick={(e) => openRenameModal(e, conv)}
                   className="p-1 hover:text-blue-600 hover:bg-white rounded"
                   title="重命名"
                 >
                   ✏️
                 </button>
                 <button 
-                  onClick={(e) => handleDeleteConv(e, conv.id)}
+                  onClick={(e) => openDeleteModal(e, conv)}
                   className="p-1 hover:text-red-600 hover:bg-white rounded"
                   title="删除"
                 >
@@ -362,6 +380,52 @@ export default function ChatPage() {
           </div>
         </div>
       </div>
+
+      {/* 👇 自定义优雅弹窗 (Modal) */}
+      {modalType && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          {/* 磨砂背景 */}
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setModalType(null)} />
+          
+          {/* 弹窗主体 */}
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {modalType === "rename" && (
+              <div className="p-6">
+                <h3 className="text-lg font-bold text-zinc-900 mb-4">重命名会话</h3>
+                <input
+                  type="text"
+                  autoFocus
+                  value={renameInput}
+                  onChange={(e) => setRenameInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleRenameSubmit()}
+                  className="w-full border border-zinc-300 rounded-xl px-4 py-3 text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900 transition-all mb-6"
+                  placeholder="请输入新名称"
+                />
+                <div className="flex justify-end gap-3">
+                  <button onClick={() => setModalType(null)} className="px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors">取消</button>
+                  <button onClick={handleRenameSubmit} className="px-4 py-2 text-sm font-medium text-white bg-zinc-900 hover:bg-zinc-800 rounded-lg shadow-sm transition-colors">保存</button>
+                </div>
+              </div>
+            )}
+
+            {modalType === "delete" && (
+              <div className="p-6">
+                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4">
+                  <span className="text-2xl">⚠️</span>
+                </div>
+                <h3 className="text-lg font-bold text-zinc-900 mb-2">确认删除？</h3>
+                <p className="text-sm text-zinc-500 mb-6 leading-relaxed">
+                  确定要删除会话 <strong>“{activeConv?.title}”</strong> 吗？该会话下的所有聊天记录和收藏也会被永久删除，此操作无法撤销。
+                </p>
+                <div className="flex justify-end gap-3">
+                  <button onClick={() => setModalType(null)} className="px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors">取消</button>
+                  <button onClick={handleDeleteSubmit} className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-colors">确认删除</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
