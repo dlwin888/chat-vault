@@ -33,12 +33,21 @@ export default function ChatPage() {
   
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
-  // 👇 新增：自定义弹窗状态
+  // 弹窗状态
   const [modalType, setModalType] = useState<"rename" | "delete" | null>(null);
   const [activeConv, setActiveConv] = useState<Conversation | null>(null);
   const [renameInput, setRenameInput] = useState("");
   
+  // 👇 新增：全局轻提示 Toast 状态
+  const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // 👇 触发 Toast 的函数
+  const showToast = (type: "success" | "error", text: string) => {
+    setToast({ type, text });
+    setTimeout(() => setToast(null), 2500); // 2.5秒后自动消失
+  };
 
   const handleAuthError = () => {
     localStorage.removeItem("token");
@@ -67,10 +76,7 @@ export default function ChatPage() {
       const res = await fetch(`${API_BASE}/api/conversations`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
-      if (res.status === 401) {
-        handleAuthError();
-        return;
-      }
+      if (res.status === 401) return handleAuthError();
       if (res.ok) {
         const data = await res.json();
         setConversations(data.items || []);
@@ -85,15 +91,11 @@ export default function ChatPage() {
     setCurrentConvId(convId);
     setIsSidebarOpen(false);
     setLoading(true);
-    
     try {
       const res = await fetch(`${API_BASE}/api/conversations/${convId}/messages`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.status === 401) {
-        handleAuthError();
-        return;
-      }
+      if (res.status === 401) return handleAuthError();
       if (res.ok) {
         const data = await res.json();
         setMessages(data.items || []);
@@ -105,7 +107,6 @@ export default function ChatPage() {
     }
   };
 
-  // 打开重命名弹窗
   const openRenameModal = (e: React.MouseEvent, conv: Conversation) => {
     e.stopPropagation();
     setActiveConv(conv);
@@ -113,20 +114,16 @@ export default function ChatPage() {
     setModalType("rename");
   };
 
-  // 打开删除确认弹窗
   const openDeleteModal = (e: React.MouseEvent, conv: Conversation) => {
     e.stopPropagation();
     setActiveConv(conv);
     setModalType("delete");
   };
 
-  // 提交重命名
   const handleRenameSubmit = async () => {
     if (!activeConv || !renameInput.trim() || renameInput.trim() === activeConv.title) {
-      setModalType(null);
-      return;
+      return setModalType(null);
     }
-
     try {
       const res = await fetch(`${API_BASE}/api/conversations/${activeConv.id}`, {
         method: "PUT",
@@ -137,18 +134,17 @@ export default function ChatPage() {
         setConversations((prev) =>
           prev.map((c) => (c.id === activeConv.id ? { ...c, title: renameInput } : c))
         );
+        showToast("success", "重命名成功");
       }
     } catch (err) {
-      alert("重命名失败");
+      showToast("error", "重命名失败");
     } finally {
       setModalType(null);
     }
   };
 
-  // 提交删除
   const handleDeleteSubmit = async () => {
     if (!activeConv) return;
-
     try {
       const res = await fetch(`${API_BASE}/api/conversations/${activeConv.id}`, {
         method: "DELETE",
@@ -160,9 +156,10 @@ export default function ChatPage() {
           setMessages([]);
         }
         setConversations((prev) => prev.filter((c) => c.id !== activeConv.id));
+        showToast("success", "会话已删除");
       }
     } catch (err) {
-      alert("删除失败");
+      showToast("error", "删除失败");
     } finally {
       setModalType(null);
     }
@@ -177,13 +174,10 @@ export default function ChatPage() {
 
   const sendMessage = async () => {
     if (!input.trim() || loading || !token) return;
-
     const userMsg = input;
     setInput("");
     setLatestAiMsgId(null);
-    
-    const newMessages = [...messages, { role: "user", content: userMsg }, { role: "ai", content: "" }];
-    setMessages(newMessages);
+    setMessages([...messages, { role: "user", content: userMsg }, { role: "ai", content: "" }]);
     setLoading(true);
 
     try {
@@ -193,16 +187,12 @@ export default function ChatPage() {
         body: JSON.stringify({ message: userMsg, conversation_id: currentConvId }),
       });
 
-      if (response.status === 401) {
-        handleAuthError();
-        return;
-      }
+      if (response.status === 401) return handleAuthError();
       if (!response.ok) throw new Error("请求失败");
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let aiText = "";
-      let newConvId = currentConvId;
 
       if (reader) {
         while (true) {
@@ -210,7 +200,6 @@ export default function ChatPage() {
           if (done) break;
           const text = decoder.decode(value, { stream: true });
           aiText += text;
-
           const displayText = aiText.split("\n\n__MSG_ID__")[0];
           setMessages((prev) => {
             const updated = [...prev];
@@ -221,17 +210,14 @@ export default function ChatPage() {
 
         const idMatch = aiText.match(/__MSG_ID__:(\d+)__CONV_ID__:(\d+)/);
         if (idMatch) {
-          const msgId = parseInt(idMatch[1]);
-          newConvId = parseInt(idMatch[2]);
-          setLatestAiMsgId(msgId);
+          setLatestAiMsgId(parseInt(idMatch[1]));
           if (!currentConvId) {
-            setCurrentConvId(newConvId);
+            setCurrentConvId(parseInt(idMatch[2]));
             fetchConversations(token);
           }
         }
       }
     } catch (error) {
-      console.error(error);
       setMessages((prev) => {
         const updated = [...prev];
         updated[updated.length - 1] = { role: "ai", content: "⚠️ 网络异常或登录已过期。" };
@@ -255,9 +241,15 @@ export default function ChatPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ message_id: messageId, question: userMessage.content, answer: aiMessage.content }),
       });
-      if (res.ok) alert("⭐ 收藏成功！");
+      
+      // 👇 使用自定义 Toast 替代原生 alert
+      if (res.ok) {
+        showToast("success", "⭐ 收藏成功");
+      } else {
+        showToast("error", "已经收藏过了或收藏失败");
+      }
     } catch (err) {
-      alert("网络错误");
+      showToast("error", "网络错误，请重试");
     }
   };
 
@@ -289,22 +281,9 @@ export default function ChatPage() {
               }`}
             >
               <span className="truncate flex-1 mr-2">💬 {conv.title || "未命名对话"}</span>
-              
               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button 
-                  onClick={(e) => openRenameModal(e, conv)}
-                  className="p-1 hover:text-blue-600 hover:bg-white rounded"
-                  title="重命名"
-                >
-                  ✏️
-                </button>
-                <button 
-                  onClick={(e) => openDeleteModal(e, conv)}
-                  className="p-1 hover:text-red-600 hover:bg-white rounded"
-                  title="删除"
-                >
-                  🗑️
-                </button>
+                <button onClick={(e) => openRenameModal(e, conv)} className="p-1 hover:text-blue-600 hover:bg-white rounded" title="重命名">✏️</button>
+                <button onClick={(e) => openDeleteModal(e, conv)} className="p-1 hover:text-red-600 hover:bg-white rounded" title="删除">🗑️</button>
               </div>
             </div>
           ))}
@@ -381,23 +360,16 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* 👇 自定义优雅弹窗 (Modal) */}
+      {/* 弹窗操作 */}
       {modalType && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          {/* 磨砂背景 */}
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setModalType(null)} />
-          
-          {/* 弹窗主体 */}
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             {modalType === "rename" && (
               <div className="p-6">
                 <h3 className="text-lg font-bold text-zinc-900 mb-4">重命名会话</h3>
                 <input
-                  type="text"
-                  autoFocus
-                  value={renameInput}
-                  onChange={(e) => setRenameInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleRenameSubmit()}
+                  type="text" autoFocus value={renameInput} onChange={(e) => setRenameInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleRenameSubmit()}
                   className="w-full border border-zinc-300 rounded-xl px-4 py-3 text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900 transition-all mb-6"
                   placeholder="请输入新名称"
                 />
@@ -407,22 +379,28 @@ export default function ChatPage() {
                 </div>
               </div>
             )}
-
             {modalType === "delete" && (
               <div className="p-6">
-                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4">
-                  <span className="text-2xl">⚠️</span>
-                </div>
+                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4"><span className="text-2xl">⚠️</span></div>
                 <h3 className="text-lg font-bold text-zinc-900 mb-2">确认删除？</h3>
-                <p className="text-sm text-zinc-500 mb-6 leading-relaxed">
-                  确定要删除会话 <strong>“{activeConv?.title}”</strong> 吗？该会话下的所有聊天记录和收藏也会被永久删除，此操作无法撤销。
-                </p>
+                <p className="text-sm text-zinc-500 mb-6 leading-relaxed">确定要删除会话 <strong>“{activeConv?.title}”</strong> 吗？该操作无法撤销。</p>
                 <div className="flex justify-end gap-3">
                   <button onClick={() => setModalType(null)} className="px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors">取消</button>
                   <button onClick={handleDeleteSubmit} className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-colors">确认删除</button>
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 👇 全局轻提示 (Toast) */}
+      {toast && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[200] animate-in slide-in-from-top-4 fade-in duration-300">
+          <div className={`flex items-center gap-2 px-6 py-3 rounded-full shadow-lg font-medium text-sm ${
+            toast.type === "success" ? "bg-zinc-900 text-white" : "bg-red-50 text-red-600 border border-red-100"
+          }`}>
+            {toast.type === "success" ? "✅" : "❌"} {toast.text}
           </div>
         </div>
       )}

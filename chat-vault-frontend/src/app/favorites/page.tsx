@@ -24,6 +24,15 @@ export default function FavoritesPage() {
   const [hasMore, setHasMore] = useState(true);
   const [skip, setSkip] = useState(0);
 
+  // 👇 新增：弹窗和 Toast 状态
+  const [deleteTarget, setDeleteTarget] = useState<number | null>(null);
+  const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const showToast = (type: "success" | "error", text: string) => {
+    setToast({ type, text });
+    setTimeout(() => setToast(null), 2500);
+  };
+
   const formatTime = (timeStr: string) => {
     if (!timeStr) return "";
     return new Date(timeStr).toLocaleString("zh-CN", {
@@ -80,23 +89,31 @@ export default function FavoritesPage() {
     return () => clearTimeout(delayDebounceFn);
   }, [search]);
 
-  const handleDelete = async (id: number) => {
-    if (!window.confirm("确定要删除这条记录吗？")) return;
+  // 提交删除
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
     const token = localStorage.getItem("token");
 
     try {
-      const res = await fetch(`${API_BASE}/api/favorites/${id}`, {
+      const res = await fetch(`${API_BASE}/api/favorites/${deleteTarget}`, {
         method: "DELETE",
         headers: { "Authorization": `Bearer ${token}` }
       });
-      if (res.ok) setItems((prev) => prev.filter((item) => item.id !== id));
+      if (res.ok) {
+        setItems((prev) => prev.filter((item) => item.id !== deleteTarget));
+        showToast("success", "已成功删除收藏");
+      } else {
+        showToast("error", "删除失败");
+      }
     } catch (err) {
-      alert("网络错误");
+      showToast("error", "网络错误");
+    } finally {
+      setDeleteTarget(null); // 关闭弹窗
     }
   };
 
   return (
-    <div className="flex h-screen bg-zinc-50">
+    <div className="flex h-screen bg-zinc-50 relative">
       {/* 桌面端侧边栏 */}
       <div className="w-[260px] bg-white border-r border-zinc-200 flex-col hidden md:flex">
         <div className="p-4">
@@ -117,7 +134,7 @@ export default function FavoritesPage() {
 
       {/* 主内容区 */}
       <div className="flex-1 flex flex-col h-full w-full">
-        {/* 👇 移动端专属顶部导航 */}
+        {/* 移动端专属顶部导航 */}
         <div className="md:hidden flex items-center justify-between p-4 border-b border-zinc-200 bg-white">
           <Link href="/" className="p-2 -ml-2 text-zinc-600">
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
@@ -168,7 +185,8 @@ export default function FavoritesPage() {
                       </div>
                       <div className="mt-5 pt-4 border-t border-zinc-100 flex justify-between items-center">
                         <p className="text-xs text-zinc-400 font-mono">{formatTime(item.created_at)}</p>
-                        <button onClick={() => handleDelete(item.id)} className="text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-md">
+                        {/* 👇 点击不再是 window.confirm，而是唤起自定义弹窗 */}
+                        <button onClick={() => setDeleteTarget(item.id)} className="text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-md">
                           🗑️ 删除
                         </button>
                       </div>
@@ -189,6 +207,35 @@ export default function FavoritesPage() {
           </div>
         </div>
       </div>
+
+      {/* 👇 删除收藏的确认弹窗 */}
+      {deleteTarget !== null && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setDeleteTarget(null)} />
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4"><span className="text-2xl">🗑️</span></div>
+              <h3 className="text-lg font-bold text-zinc-900 mb-2">确认删除这条收藏？</h3>
+              <p className="text-sm text-zinc-500 mb-6 leading-relaxed">删除后，这条 AI 洞察将从你的私人保险箱中永久移除。</p>
+              <div className="flex justify-end gap-3">
+                <button onClick={() => setDeleteTarget(null)} className="px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors">取消</button>
+                <button onClick={confirmDelete} className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-colors">确认删除</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 👇 全局轻提示 (Toast) */}
+      {toast && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[200] animate-in slide-in-from-top-4 fade-in duration-300">
+          <div className={`flex items-center gap-2 px-6 py-3 rounded-full shadow-lg font-medium text-sm ${
+            toast.type === "success" ? "bg-zinc-900 text-white" : "bg-red-50 text-red-600 border border-red-100"
+          }`}>
+            {toast.type === "success" ? "✅" : "❌"} {toast.text}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
