@@ -27,12 +27,10 @@ export default function ChatPage() {
   const [token, setToken] = useState<string | null>(null);
   const [username, setUsername] = useState("");
   
-  // 会话状态
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConvId, setCurrentConvId] = useState<number | null>(null);
   const [latestAiMsgId, setLatestAiMsgId] = useState<number | null>(null);
   
-  // 👇 新增：手机端侧边栏开关状态
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -80,7 +78,7 @@ export default function ChatPage() {
   const loadConversation = async (convId: number) => {
     if (!token || loading) return;
     setCurrentConvId(convId);
-    setIsSidebarOpen(false); // 手机上选择会话后自动关闭侧边栏
+    setIsSidebarOpen(false);
     setLoading(true);
     
     try {
@@ -99,6 +97,54 @@ export default function ChatPage() {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 👇 新增：重命名会话
+  const handleRename = async (e: React.MouseEvent, convId: number, oldTitle: string) => {
+    e.stopPropagation(); // 阻止触发外层会话点击事件
+    const newTitle = window.prompt("请输入新的会话名称", oldTitle);
+    if (!newTitle || newTitle.trim() === oldTitle) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/api/conversations/${convId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ title: newTitle }),
+      });
+      if (res.ok) {
+        setConversations((prev) =>
+          prev.map((c) => (c.id === convId ? { ...c, title: newTitle } : c))
+        );
+      }
+    } catch (err) {
+      alert("重命名失败");
+    }
+  };
+
+  // 👇 新增：删除会话
+  const handleDeleteConv = async (e: React.MouseEvent, convId: number) => {
+    e.stopPropagation();
+    if (!window.confirm("确定要删除这个会话及所有聊天记录吗？此操作不可恢复。")) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/api/conversations/${convId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        // 如果删除的是当前正在看的会话，清空聊天区
+        if (currentConvId === convId) {
+          setCurrentConvId(null);
+          setMessages([]);
+        }
+        // 从侧边栏列表中移除
+        setConversations((prev) => prev.filter((c) => c.id !== convId));
+      } else {
+        alert("删除失败");
+      }
+    } catch (err) {
+      alert("网络错误");
     }
   };
 
@@ -123,10 +169,7 @@ export default function ChatPage() {
     try {
       const response = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}` 
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ message: userMsg, conversation_id: currentConvId }),
       });
 
@@ -134,7 +177,6 @@ export default function ChatPage() {
         handleAuthError();
         return;
       }
-
       if (!response.ok) throw new Error("请求失败");
 
       const reader = response.body?.getReader();
@@ -203,12 +245,8 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-screen bg-white relative overflow-hidden">
-      {/* 👇 移动端遮罩层（侧边栏打开时，后面的内容变暗并可点击关闭） */}
       {isSidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-40 md:hidden transition-opacity" 
-          onClick={() => setIsSidebarOpen(false)}
-        />
+        <div className="fixed inset-0 bg-black/50 z-40 md:hidden transition-opacity" onClick={() => setIsSidebarOpen(false)} />
       )}
 
       {/* 👈 左侧会话侧边栏 */}
@@ -216,25 +254,41 @@ export default function ChatPage() {
         isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       }`}>
         <div className="p-4">
-          <button 
-            onClick={startNewChat}
-            className="w-full flex items-center justify-center gap-2 py-3 bg-white border border-zinc-200 rounded-xl hover:bg-zinc-100 transition-colors shadow-sm font-medium text-sm text-zinc-800"
-          >
+          <button onClick={startNewChat} className="w-full flex items-center justify-center gap-2 py-3 bg-white border border-zinc-200 rounded-xl hover:bg-zinc-100 shadow-sm font-medium text-sm text-zinc-800">
             <span>➕</span> 新建对话
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-3 space-y-1">
           {conversations.map((conv) => (
-            <button
+            // 👇 修改了这里，加上了 group 和菜单按钮
+            <div
               key={conv.id}
               onClick={() => loadConversation(conv.id)}
-              className={`w-full text-left px-3 py-3 rounded-lg text-sm truncate transition-colors ${
+              className={`group flex items-center justify-between px-3 py-2.5 rounded-lg text-sm cursor-pointer transition-colors ${
                 currentConvId === conv.id ? "bg-zinc-200/60 font-medium text-zinc-900" : "text-zinc-600 hover:bg-zinc-200/30"
               }`}
             >
-              💬 {conv.title || "未命名对话"}
-            </button>
+              <span className="truncate flex-1 mr-2">💬 {conv.title || "未命名对话"}</span>
+              
+              {/* 悬浮菜单按钮 */}
+              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button 
+                  onClick={(e) => handleRename(e, conv.id, conv.title)}
+                  className="p-1 hover:text-blue-600 hover:bg-white rounded"
+                  title="重命名"
+                >
+                  ✏️
+                </button>
+                <button 
+                  onClick={(e) => handleDeleteConv(e, conv.id)}
+                  className="p-1 hover:text-red-600 hover:bg-white rounded"
+                  title="删除"
+                >
+                  🗑️
+                </button>
+              </div>
+            </div>
           ))}
         </div>
 
@@ -250,13 +304,12 @@ export default function ChatPage() {
 
       {/* 👉 右侧主聊天区 */}
       <div className="flex-1 flex flex-col h-full w-full relative">
-        {/* 👇 移动端专属顶部导航 */}
         <div className="md:hidden flex items-center justify-between p-4 border-b border-zinc-100 bg-white">
           <button onClick={() => setIsSidebarOpen(true)} className="p-2 -ml-2 text-zinc-600">
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
           </button>
           <span className="font-bold text-zinc-800">ChatVault</span>
-          <div className="w-8"></div> {/* 占位保持居中 */}
+          <div className="w-8"></div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6">

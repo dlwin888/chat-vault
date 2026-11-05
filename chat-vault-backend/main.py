@@ -161,6 +161,46 @@ def get_messages(conv_id: int, current_user: User = Depends(get_current_user), d
     messages = db.query(Message).filter(Message.conversation_id == conv_id).order_by(Message.id.asc()).all()
     return {"items": messages}
 
+# 重命名会话
+class RenameRequest(BaseModel):
+    title: str
+
+@app.put("/api/conversations/{conv_id}")
+def rename_conversation(conv_id: int, req: RenameRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    conv = db.query(Conversation).filter(Conversation.id == conv_id, Conversation.user_id == current_user.id).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    
+    conv.title = req.title.strip() or "新对话"
+    db.commit()
+    return {"message": "重命名成功"}
+
+# 删除会话（级联删除）
+@app.delete("/api/conversations/{conv_id}")
+def delete_conversation(conv_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    conv = db.query(Conversation).filter(Conversation.id == conv_id, Conversation.user_id == current_user.id).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="会话不存在或无权删除")
+
+    try:
+        # 1. 获取该会话下的所有消息 ID
+        messages = db.query(Message).filter(Message.conversation_id == conv_id).all()
+        message_ids = [msg.id for msg in messages]
+
+        # 2. 删除这些消息对应的收藏记录
+        if message_ids:
+            db.query(Favorite).filter(Favorite.message_id.in_(message_ids)).delete(synchronize_session=False)
+
+        # 3. 删除该会话下的所有消息
+        db.query(Message).filter(Message.conversation_id == conv_id).delete(synchronize_session=False)
+
+        # 4. 最后删除会话本身
+        db.delete(conv)
+        db.commit()
+        return {"message": "会话删除成功"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"删除失败: {str(e)}")
 # ---------------- AI 对话 ----------------
 
 @app.post("/api/chat")
