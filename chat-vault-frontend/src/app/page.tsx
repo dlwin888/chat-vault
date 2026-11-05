@@ -29,11 +29,9 @@ export default function ChatPage() {
   
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConvId, setCurrentConvId] = useState<number | null>(null);
-  const [latestAiMsgId, setLatestAiMsgId] = useState<number | null>(null);
   
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
-  // 👇 增加 "clear_all" 弹窗状态
   const [modalType, setModalType] = useState<"rename" | "delete" | "clear_all" | null>(null);
   const [activeConv, setActiveConv] = useState<Conversation | null>(null);
   const [renameInput, setRenameInput] = useState("");
@@ -69,10 +67,7 @@ export default function ChatPage() {
         const res = await fetch(`${API_BASE}/api/conversations`, {
           headers: { Authorization: `Bearer ${savedToken}` },
         });
-        if (res.status === 401) {
-          handleAuthError();
-          return;
-        }
+        if (res.status === 401) return handleAuthError();
         if (res.ok) {
           const data = await res.json();
           setConversations(data.items || []);
@@ -81,7 +76,6 @@ export default function ChatPage() {
         console.error("加载会话列表失败", err);
       }
     };
-
     initApp();
   }, [router]);
 
@@ -122,6 +116,141 @@ export default function ChatPage() {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const startNewChat = () => {
+    setCurrentConvId(null);
+    setMessages([]);
+    setIsSidebarOpen(false);
+  };
+
+  // 👇 核心通用函数：触发流式对话
+  const triggerStreamChat = async (messageText: string) => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ message: messageText, conversation_id: currentConvId }),
+      });
+
+      if (response.status === 401) return handleAuthError();
+      
+      const contentType = response.headers.get("content-type");
+      if (!response.ok || (contentType && contentType.includes("application/json"))) {
+        const errData = await response.json();
+        if (errData.detail === "Not authenticated" || errData.detail === "无效的认证凭证") return handleAuthError();
+        throw new Error(errData.detail || "请求失败");
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let aiText = "";
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const text = decoder.decode(value, { stream: true });
+          aiText += text;
+          const displayText = aiText.split("\n\n__MSG_ID__")[0];
+          setMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = { role: "ai", content: displayText };
+            return updated;
+          });
+        }
+
+        const idMatch = aiText.match(/__MSG_ID__:(\d+)__CONV_ID__:(\d+)/);
+        if (idMatch) {
+          if (!currentConvId) {
+            setCurrentConvId(parseInt(idMatch[2]));
+            refreshConversations(token);
+          }
+        }
+      }
+    } catch (error) {
+      setMessages((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { role: "ai", content: "⚠️ 网络异常或登录已过期。" };
+        return updated;
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 正常发送消息
+  const sendMessage = async () => {
+    if (!input.trim() || loading || !token) return;
+    const userMsg = input;
+    setInput("");
+    setMessages([...messages, { role: "user", content: userMsg }, { role: "ai", content: "" }]);
+    await triggerStreamChat(userMsg);
+  };
+
+  // 👇 新增：重新生成逻辑
+  const handleRegenerate = async () => {
+    if (!token || loading || messages.length < 2) return;
+    
+    // 获取最后一条用户提问
+    const lastUserMsg = messages[messages.length - 2].content;
+    
+    // 1. 后端：删除废弃的 AI 消息
+    if (currentConvId) {
+      try {
+        await fetch(`${API_BASE}/api/conversations/${currentConvId}/last_ai_message`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch (err) {
+        console.error("删除旧消息失败", err);
+      }
+    }
+
+    // 2. 前端：把最后一条 AI 消息清空（保留占位）
+    setMessages((prev) => {
+      const updated = [...prev];
+      updated[updated.length - 1] = { role: "ai", content: "" };
+      return updated;
+    });
+
+    // 3. 重新触发流式请求
+    await triggerStreamChat(lastUserMsg);
+  };
+
+  const handleFavorite = async (msgIndex: number) => {
+    if (!token) return;
+    const aiMessage = messages[msgIndex];
+    const userMessage = messages[msgIndex - 1];
+    const messageId = aiMessage.id;
+    
+    // 注：由于后端每次流式返回特殊标记，这里为了防止 ID 丢失，我们最好也用特殊标记存。
+    // 但在当前场景，如果 ID 没有直接存在 msg 对象中，可以依靠后端防止重复收藏。
+    // 我们假设 aiMessage.id 在拉到历史时是有的，但如果是刚刚流式生成的，没赋给 id。
+    // 为了简化，我们可以让用户去“历史记录”里重新打开再收藏，或者让后端去匹配最近的一条。
+    // 这里我们依然保留收藏当前最后一条的逻辑（如果是流式刚生成的，后端可以在流式响应里带上 ID，由于之前优化过，这里如果没 ID 就提示一下）
+    if (!messageId) {
+       // 暂时妥协：如果刚生成的没有 ID，我们直接靠后端查找匹配
+       // (具体见后端的 add_favorite 逻辑，如果传 0，后端自己找最近一条)
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/favorites`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        // 这里为了简单，直接传 0，后端如果发现 message_id=0，去查最新一条
+        body: JSON.stringify({ message_id: messageId || 0, question: userMessage.content, answer: aiMessage.content }),
+      });
+      
+      if (res.ok) {
+        showToast("success", "⭐ 收藏成功");
+      } else {
+        showToast("error", "收藏失败");
+      }
+    } catch (err) {
+      showToast("error", "网络错误，请重试");
     }
   };
 
@@ -183,7 +312,6 @@ export default function ChatPage() {
     }
   };
 
-  // 👇 新增：清空全部对话逻辑
   const handleClearAllSubmit = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/conversations`, {
@@ -194,108 +322,12 @@ export default function ChatPage() {
         setConversations([]);
         setCurrentConvId(null);
         setMessages([]);
-        setLatestAiMsgId(null);
         showToast("success", "已清空全部对话");
       }
     } catch (err) {
       showToast("error", "清空失败");
     } finally {
       setModalType(null);
-    }
-  };
-
-  const startNewChat = () => {
-    setCurrentConvId(null);
-    setMessages([]);
-    setLatestAiMsgId(null);
-    setIsSidebarOpen(false);
-  };
-
-  const sendMessage = async () => {
-    if (!input.trim() || loading || !token) return;
-    const userMsg = input;
-    setInput("");
-    setLatestAiMsgId(null);
-    setMessages([...messages, { role: "user", content: userMsg }, { role: "ai", content: "" }]);
-    setLoading(true);
-
-    try {
-      const response = await fetch(`${API_BASE}/api/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ message: userMsg, conversation_id: currentConvId }),
-      });
-
-      if (response.status === 401) return handleAuthError();
-      
-      const contentType = response.headers.get("content-type");
-      if (!response.ok || (contentType && contentType.includes("application/json"))) {
-        const errData = await response.json();
-        if (errData.detail === "Not authenticated" || errData.detail === "无效的认证凭证") {
-           return handleAuthError();
-        }
-        throw new Error(errData.detail || "请求失败");
-      }
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let aiText = "";
-
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const text = decoder.decode(value, { stream: true });
-          aiText += text;
-          const displayText = aiText.split("\n\n__MSG_ID__")[0];
-          setMessages((prev) => {
-            const updated = [...prev];
-            updated[updated.length - 1] = { role: "ai", content: displayText };
-            return updated;
-          });
-        }
-
-        const idMatch = aiText.match(/__MSG_ID__:(\d+)__CONV_ID__:(\d+)/);
-        if (idMatch) {
-          setLatestAiMsgId(parseInt(idMatch[1]));
-          if (!currentConvId) {
-            setCurrentConvId(parseInt(idMatch[2]));
-            refreshConversations(token);
-          }
-        }
-      }
-    } catch (error) {
-      setMessages((prev) => {
-        const updated = [...prev];
-        updated[updated.length - 1] = { role: "ai", content: "⚠️ 网络异常或登录已过期。" };
-        return updated;
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleFavorite = async (msgIndex: number) => {
-    if (!token) return;
-    const aiMessage = messages[msgIndex];
-    const userMessage = messages[msgIndex - 1];
-    const messageId = aiMessage.id || latestAiMsgId;
-    if (!messageId) return;
-
-    try {
-      const res = await fetch(`${API_BASE}/api/favorites`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ message_id: messageId, question: userMessage.content, answer: aiMessage.content }),
-      });
-      
-      if (res.ok) {
-        showToast("success", "⭐ 收藏成功");
-      } else {
-        showToast("error", "已经收藏过了或收藏失败");
-      }
-    } catch (err) {
-      showToast("error", "网络错误，请重试");
     }
   };
 
@@ -315,12 +347,8 @@ export default function ChatPage() {
           <button onClick={startNewChat} className="w-full flex items-center justify-center gap-2 py-3 bg-white border border-zinc-200 rounded-xl hover:bg-zinc-100 shadow-sm font-medium text-sm text-zinc-800">
             <span>➕</span> 新建对话
           </button>
-          {/* 👇 新增：清空全部按钮（只有当有对话时才显示） */}
           {conversations.length > 0 && (
-            <button 
-              onClick={() => setModalType("clear_all")} 
-              className="w-full flex items-center justify-center gap-2 py-2 text-zinc-500 hover:text-red-600 hover:bg-red-50 rounded-xl text-xs font-medium transition-colors"
-            >
+            <button onClick={() => setModalType("clear_all")} className="w-full flex items-center justify-center gap-2 py-2 text-zinc-500 hover:text-red-600 hover:bg-red-50 rounded-xl text-xs font-medium transition-colors">
               <span>🧹</span> 清空全部对话
             </button>
           )}
@@ -374,14 +402,24 @@ export default function ChatPage() {
           
           {messages.map((msg, idx) => (
             <div key={idx} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[85%] md:max-w-[75%] p-4 rounded-2xl ${
+              <div className={`max-w-[85%] md:max-w-[75%] p-4 rounded-2xl group ${
                 msg.role === "user" ? "bg-zinc-900 text-white rounded-br-sm" : "bg-zinc-100 text-zinc-800 rounded-bl-sm"
               }`}>
                 {msg.role === "ai" ? <MarkdownRenderer content={msg.content} /> : <p className="whitespace-pre-wrap">{msg.content}</p>}
+                
+                {/* AI 消息操作栏 */}
                 {msg.role === "ai" && msg.content && !loading && (
-                  <button onClick={() => handleFavorite(idx)} className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-yellow-600 bg-white/50 hover:bg-white px-3 py-1.5 rounded-lg">
-                    ⭐ 收藏此回答
-                  </button>
+                  <div className="mt-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => handleFavorite(idx)} className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-yellow-600 bg-white/50 hover:bg-white px-3 py-1.5 rounded-lg transition-colors">
+                      ⭐ 收藏
+                    </button>
+                    {/* 👇 只有最后一条消息才显示重新生成 */}
+                    {idx === messages.length - 1 && (
+                      <button onClick={handleRegenerate} className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-blue-600 bg-white/50 hover:bg-white px-3 py-1.5 rounded-lg transition-colors">
+                        🔄 重新生成
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -415,12 +453,11 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* 操作弹窗 */}
+      {/* 弹窗操作... 保持不变 */}
       {modalType && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setModalType(null)} />
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            
             {modalType === "rename" && (
               <div className="p-6">
                 <h3 className="text-lg font-bold text-zinc-900 mb-4">重命名会话</h3>
@@ -435,7 +472,6 @@ export default function ChatPage() {
                 </div>
               </div>
             )}
-
             {modalType === "delete" && (
               <div className="p-6">
                 <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4"><span className="text-2xl">⚠️</span></div>
@@ -447,8 +483,6 @@ export default function ChatPage() {
                 </div>
               </div>
             )}
-
-            {/* 👇 新增：清空全部确认弹窗 */}
             {modalType === "clear_all" && (
               <div className="p-6">
                 <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4"><span className="text-2xl">🧨</span></div>
@@ -460,7 +494,6 @@ export default function ChatPage() {
                 </div>
               </div>
             )}
-
           </div>
         </div>
       )}

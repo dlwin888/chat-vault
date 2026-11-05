@@ -229,7 +229,29 @@ def delete_all_conversations(current_user: User = Depends(get_current_user), db:
         return {"message": "已清空所有对话"}
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"清空失败: {str(e)}")    
+        raise HTTPException(status_code=500, detail=f"清空失败: {str(e)}")
+
+# 删除指定会话的最后一条 AI 消息（用于重新生成）
+@app.delete("/api/conversations/{conv_id}/last_ai_message")
+def delete_last_ai_message(conv_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    conv = db.query(Conversation).filter(Conversation.id == conv_id, Conversation.user_id == current_user.id).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="会话不存在或无权操作")
+
+    # 找到该会话下最新的一条 AI 消息
+    last_ai_msg = db.query(Message).filter(
+        Message.conversation_id == conv_id, 
+        Message.role == "ai"
+    ).order_by(Message.id.desc()).first()
+
+    if last_ai_msg:
+        # 删除对应的收藏记录
+        db.query(Favorite).filter(Favorite.message_id == last_ai_msg.id).delete(synchronize_session=False)
+        # 删除该消息
+        db.delete(last_ai_msg)
+        db.commit()
+
+    return {"message": "已删除最后一条 AI 回复"}        
 # ---------------- AI 对话 ----------------
 
 @app.post("/api/chat")
