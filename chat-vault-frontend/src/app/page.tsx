@@ -125,9 +125,8 @@ export default function ChatPage() {
     setIsSidebarOpen(false);
   };
 
-  // 👇 核心通用函数：触发流式对话
   const triggerStreamChat = async (messageText: string) => {
-    if (!token) return; // 👈 修复 TypeScript 报错：确保 token 不是 null
+    if (!token) return; 
     setLoading(true);
     try {
       const response = await fetch(`${API_BASE}/api/chat`, {
@@ -182,7 +181,6 @@ export default function ChatPage() {
     }
   };
 
-  // 正常发送消息
   const sendMessage = async () => {
     if (!input.trim() || loading || !token) return;
     const userMsg = input;
@@ -191,7 +189,6 @@ export default function ChatPage() {
     await triggerStreamChat(userMsg);
   };
 
-  // 重新生成逻辑
   const handleRegenerate = async () => {
     if (!token || loading || messages.length < 2) return;
     
@@ -393,9 +390,9 @@ export default function ChatPage() {
               }`}>
                 {msg.role === "ai" ? <MarkdownRenderer content={msg.content} /> : <p className="whitespace-pre-wrap">{msg.content}</p>}
                 
-                {/* AI 消息操作栏 */}
+                {/* 👇 修复移动端不可见问题：加上 md: 前缀，让手机端默认可见，桌面端悬浮可见 */}
                 {msg.role === "ai" && msg.content && !loading && (
-                  <div className="mt-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="mt-3 flex items-center gap-2 transition-opacity md:opacity-0 md:group-hover:opacity-100">
                     <button onClick={() => handleFavorite(idx)} className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-yellow-600 bg-white/50 hover:bg-white px-3 py-1.5 rounded-lg transition-colors">
                       ⭐ 收藏
                     </button>
